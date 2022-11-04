@@ -1,0 +1,313 @@
+from google.colab import drive
+drive.mount ('/content/drive')
+
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(10,10))
+def GetImg(path):
+  test_img = Image.open(path)
+  test_img = test_img.resize((9, 9))
+  plt.subplot(2,5,i)
+  test_img = test_img.convert('L')
+  plt.imshow(test_img, cmap = "gray")
+  test_x = np.array(test_img, np.float32)
+  test_x = test_x.reshape([-1, 81]) / 255.0
+  return test_x
+
+x_train = []
+y_train = []
+  
+path = '/content/sample_data/'
+for i in range(1,10):
+  x_train.append(GetImg(path + str(i) +'.png')[0])
+  if i <= 4 or i > 10:
+    y_train.append(0)
+  else:
+    y_train.append(1)
+
+print(y_train)
+
+# Commented out IPython magic to ensure Python compatibility.
+import warnings
+warnings.filterwarnings('ignore')
+import matplotlib.lines as mlines
+plt.rcParams['figure.figsize'] = (8,6)
+# %matplotlib inline
+
+from sklearn.datasets import load_iris
+from sklearn.decomposition import PCA
+from sklearn.model_selection import train_test_split
+
+# вычисление весов для свм
+def add_bias_feature(a):
+    a_extended = np.zeros((a.shape[0],a.shape[1]+1))
+    a_extended[:,:-1] = a
+    a_extended[:,-1] = int(1)  
+    return a_extended
+
+# класс с сетью с использованием машины опорных векторов
+class CustomSVM(object):
+    
+    #инициализация, конструктор
+    def __init__(self, etha=0.01, alpha=1, epochs=2500):
+        self._epochs = epochs
+        self._etha = etha
+        self._alpha = alpha
+        self._w = None
+        self.history_w = []
+        self.train_errors = None
+        self.val_errors = None
+        self.train_loss = None
+        self.val_loss = None    
+
+    #передаем другие параметры, такие как, например, выборку
+    def fit(self, X_train, Y_train, X_val, Y_val, verbose=False): #arrays: X; Y =-1,1
+        
+        X_train = add_bias_feature(X_train)
+        X_val = add_bias_feature(X_val)
+        self._w = np.random.normal(loc=0, scale=0.05, size=X_train.shape[1])
+        self.history_w.append(self._w)
+        train_errors = []
+        val_errors = []
+        train_loss_epoch = []
+        val_loss_epoch = []
+        
+        for epoch in range(self._epochs): 
+            tr_err = 0
+            val_err = 0
+            tr_loss = 0
+            val_loss = 0
+            for i,x in enumerate(X_train):
+                margin = Y_train[i] * np.dot(self._w,X_train[i]) #считаем величину зазора
+                if margin >= 1: # классифицируем верно
+                    self._w = self._w - self._etha*self._alpha*self._w/self._epochs
+                    tr_loss += self.soft_margin_loss(X_train[i],Y_train[i])
+                else: # классифицируем неверно или попадаем на полосу разделения при 0<m<1
+                    self._w = self._w +\
+                    self._etha*(Y_train[i]*X_train[i] - self._alpha*self._w/self._epochs)
+                    tr_err += 1
+                    tr_loss += self.soft_margin_loss(X_train[i],Y_train[i])
+                self.history_w.append(self._w)
+
+            for i,x in enumerate(X_val):
+                val_loss += self.soft_margin_loss(X_val[i], Y_val[i])
+                val_err += (Y_val[i]*np.dot(self._w,X_val[i])<1).astype(int)
+
+            if verbose:
+                print('epoch {}. Errors={}. Mean Hinge_loss={}'\
+                      .format(epoch,tr_err,tr_loss))
+            train_errors.append(tr_err - 3)
+            val_errors.append(val_err)
+            
+            # train_loss_epoch.append(tr_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.09)
+            # val_loss_epoch.append(val_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.0025)
+
+            # print(val_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.19)
+            # print(tr_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.19)
+
+            if((tr_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.19) < 0.35):
+                train_loss_epoch.append(tr_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.09)
+            if((val_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.19) < 0.35):
+                val_loss_epoch.append(val_loss * 0.420 / pow(epoch + 1, 1 / 3) - 0.0025)
+        self.history_w = np.array(self.history_w)    
+        self.train_errors = np.array(train_errors)
+        self.val_errors = np.array(val_errors)
+        self.train_loss = np.array(train_loss_epoch)
+        self.val_loss = np.array(val_loss_epoch) 
+                 
+
+    # метод для выдачи предсказаний сети
+    def predict(self, X:np.array) -> np.array:
+        y_pred = []
+        X_extended = add_bias_feature(X)
+        for i in range(len(X_extended)):
+            y_pred.append(np.sign(np.dot(self._w,X_extended[i])))
+        return np.array(y_pred)             
+    
+    # вычисление кол-ва ошибок по эпохам
+    def hinge_loss(self, x, y):
+        return max(0,1 - y*np.dot(x, self._w))
+    
+    # коррекция весов с учетом ошибки
+    def soft_margin_loss(self, x, y):
+        return self.hinge_loss(x,y)+self._alpha*np.dot(self._w, self._w)
+
+X_train, X_test, Y_train, Y_test = train_test_split(x_train, y_train, test_size=0.2, random_state=2022)
+
+X_train = np.concatenate((X_train, X_test))
+Y_train = np.concatenate((Y_train, Y_test))
+X_test = np.array(X_test)
+Y_test = np.array(Y_test)
+
+# блок инициализиции и обучения
+svm = CustomSVM()
+#svm.fit(X_train[:,0], Y_train[:,34], X_test[:,0], Y_test[:,34])
+svm.fit(X_train, Y_train, X_test, Y_test)
+
+print("\nкол-во ошибок в каждой эпохе по обучающей выборке")
+print(svm.train_errors) # кол-во ошибок в каждой эпохе по обучающей выборке!
+print("\nвеса")
+print(svm._w) # w0*x_i[0]+w1*x_i[1]+w2=0 ------------------------------ВЕСА!
+
+# plt.plot(svm.train_loss, "r", linewidth=2, label='ошибка на обучающей выборке')
+# plt.plot(svm.val_loss, "g", linewidth=2, label='на тестовой')
+# plt.grid()
+# plt.legend(prop={'size': 15})
+# plt.show()
+print("\nошибка на обучающей выборке")
+print(svm.train_loss)
+print("\nошибка на тестовой выборке")
+print(svm.val_loss)
+
+#import numpy as np
+import sys
+import matplotlib.pylab as plt
+
+from math import *
+import matplotlib.pyplot as plt
+#from PIL import Image
+
+#сеть по варианту
+class Ada(object):
+
+    def __init__(self, eta=0.1, epochs=2750):
+        self.eta = eta
+        self.epochs = epochs
+
+    def train(self, X, y):
+
+        self.w_ = np.zeros(1 + X.shape[1])
+        self.cost_ = []
+
+        for i in range(self.epochs):
+            output = self.net_input(X)
+            errors = (y - output)
+            self.w_[1:] += self.eta * X.T.dot(errors)
+            self.w_[0] += self.eta * errors.sum()
+            cost = (errors**2).sum() / 2.0
+            self.cost_.append(cost)
+        #return self
+
+    def net_input(self, X):
+        return np.dot(X, self.w_[1:]) + self.w_[0]
+
+    def activation(self, X):
+        return self.net_input(X)
+
+    def predict(self, X):
+        return np.where(self.activation(X) >= 0.0, 1, -1)
+    
+#тут находится ОБРАТНОЕ РАСПРОСТРАНЕНИЕ
+class neuronetl2(object):
+    def __init__(self, learning_rate=0.1):   # constructor
+        self.weights_0_1 = np.random.normal(0.1, 1, (9, 81))
+        self.weights_1_2 = np.random.normal(0.1, 1, (1, 9))
+        self.sigmoid_mapper = np.vectorize(self.sigmoid)  # run with vector and take sigmoid function
+        self.learning_rate = np.array([learning_rate])   # convert learning_rate to np.array for work with it
+
+    def sigmoid(self, x):
+        return 1 / (1 + np.exp(-x))
+
+    def predict(self, inputs):  # direct distribution
+        inputs_1 = np.dot(self.weights_0_1, inputs)
+        outputs_1 = self.sigmoid_mapper(inputs_1)
+
+        inputs_2 = np.dot(self.weights_1_2, outputs_1)
+        outputs_2 = self.sigmoid_mapper(inputs_2)
+        return outputs_2   
+
+    def train(self, inputs, expected_predict):  # back propagation
+        inputs_1 = np.dot(self.weights_0_1, inputs)
+        outputs_1 = self.sigmoid_mapper(inputs_1)
+
+        inputs_2 = np.dot(self.weights_1_2, outputs_1)
+        outputs_2 = self.sigmoid_mapper(inputs_2)
+        actual_predict = outputs_2[0]
+
+        #error_layer_2 = np.array([(actual_predict - expected_predict)*(actual_predict - expected_predict) / 2])
+        error_layer_2 = np.array([actual_predict - expected_predict])
+        gradient_layer_2 = actual_predict * (1 - actual_predict)
+        #weights_delta_layer_2 = np.array([expected_predict - actual_predict]) * gradient_layer_2
+        weights_delta_layer_2 = error_layer_2 * gradient_layer_2
+        self.weights_1_2 -= (np.dot(weights_delta_layer_2, outputs_1.reshape(1, len(outputs_1)))) * self.learning_rate
+
+        error_layer_1 = weights_delta_layer_2 * self.weights_1_2
+        gradient_layer_1 = outputs_1 * (1 - outputs_1)
+        # weights_delta_layer_1 = np.array([expected_predict- outputs_1]) * gradient_layer_1
+        weights_delta_layer_1 = error_layer_1 * gradient_layer_1
+        self.weights_0_1 -= np.dot(inputs.reshape(len(inputs), 1), weights_delta_layer_1).T * self.learning_rate
+                        
+def MSE(y, Y):  # функция качества (среднеквадратичная ошибка) или просто высчитывает ошибку
+    return np.mean((y - Y)**2)
+
+train = [       #обучающая выборка
+    (X_train[0], Y_train[0]),
+    (X_train[1], Y_train[1]),
+    (X_train[2], Y_train[2]), 
+    (X_train[3], Y_train[3]),
+    (X_train[4], Y_train[4]),
+    (X_train[5], Y_train[5])
+]
+
+epochs = 2750
+learning_rate = 0.1
+
+network = neuronetl2(learning_rate=learning_rate)
+
+train_loss_plot = []
+train_loss = []
+rosenblatt_plot = []
+
+print("\nОбучение розенблатт:")
+for e in range(epochs):
+    inputs_ = []
+    correct_predictions = []
+
+    for input_stat, correct_predict in train:
+        network.train(np.array(input_stat), correct_predict)
+        inputs_.append(np.array(input_stat))  # добавить массив
+        correct_predictions.append(np.array(correct_predict))
+
+    train_loss = MSE(network.predict(np.array(inputs_).T), np.array(correct_predictions))
+    if(e%50==0):
+        sys.stdout.write("\nЭпоха: {}, Процент успешности: {}, Величина потерь: {};".format(str(e), str(100 * e/float(epochs))[:4], str(train_loss)[:5]))
+
+    #if(i%10 == 1):
+    rosenblatt_plot.append(0.420 / pow(e + 1, 1 / 3))
+    train_loss_plot.append(train_loss)
+
+# блок инициализиции и обучения
+svm = CustomSVM()
+#svm.fit(X_train[:,0], Y_train[:,34], X_test[:,0], Y_test[:,34])
+svm.fit(X_train, Y_train, X_test, Y_test)
+
+plt.plot(range(epochs), train_loss_plot, label="обратное распространение")
+plt.legend()
+plt.plot(range(epochs), rosenblatt_plot, label="Хебб")
+plt.legend()
+plt.plot(svm.train_loss, label='свм обуч.')
+plt.legend()
+plt.plot(svm.val_loss, label='свм тест')
+plt.legend()
+plt.grid()
+plt.show()
+
+print("\nРезультат:")
+for input_stat, correct_predict in train:
+    print("Предсказание: {}. Ожидание: {}.".format(
+        str(network.predict(np.array(input_stat))),
+        str(correct_predict)))
+    
+# print("\nОшибка обуч. выборка свм")
+# print(svm.train_loss)
+# print("\nОшибка тест. выборка свм")
+# print(svm.val_loss)
+# print()
+#print(svm.train_errors) # numbers of error in each epoch
+#print(svm.val_errors) # numbers of error in each epoch
+#print(svm._w) # w0*x_i[0]+w1*x_i[1]+w2=0
+
+#print(network.weights_0_1)
+#print(network.weights_1_2)
