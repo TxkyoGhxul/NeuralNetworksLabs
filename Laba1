@@ -1,0 +1,62 @@
+import numpy as np
+
+def f(x):
+  return 2/(1 + np.exp(-x)) - 1 #функция активации - значение которое приходит на нейрон от 0 до 1
+
+def df(x):
+    return 0.5*(1 + x)*(1 - x) #производная функции активации
+
+W1 = np.array([[-0.9, 0.9], [0.9, -0.4], [0.9,-0.4]])
+W2 = np.array([0.6, 0.7, 0.3, 0.4])
+
+def go_forward(inp):
+    sum = np.dot(W1, inp)
+    out = np.array([f(x) for x in sum])
+    out = np.append(out, 1);
+    sum = np.dot(W2, out)
+    y = f(sum)
+    return (y, out)
+
+def train(func):
+    global W2, W1
+    lmd = 0.01          # шаг обучения
+    N = 10000          # число итераций при обучении
+    count = len(func)
+    for k in range(N):
+        x = func[np.random.randint(0, count)]  
+        y, out = go_forward(x[0:2])             
+        e = y - x[-1]                           # ошибка
+        delta = e*df(y)                         # локальный градиент
+        W2[0] = W2[0] - lmd * delta * out[0]    # корректировка веса первой связи
+        W2[1] = W2[1] - lmd * delta * out[1]    # корректировка веса второй связи
+        W2[2] = W2[2] - lmd * delta * out[2]
+        W2[3] = W2[3] - lmd * delta * out[3]
+
+        delta2 = W2*delta*df(out)
+        
+        W1[0, :] = W1[0, :] - np.array(x[0:2]) * delta2[0] * lmd
+        W1[1, :] = W1[1, :] - np.array(x[0:2]) * delta2[1] * lmd
+        W1[2, :] = W1[2, :] - np.array(x[0:2]) * delta2[2] * lmd
+        # show()
+
+func = [(0, 0, 0),
+         (0, 1, 0),
+         (1, 0, 1),
+         (1, 1, 1)]
+
+train(func)        
+
+# проверка полученных результатов
+for x in func:
+    y, out = go_forward(x[0:2])
+    print(f"Выходное значение НС: {y} => {x[-1]}")
+
+k = 1
+for w in W1:
+  s = 3
+  print(f'w{k} = {w[0]}')
+  print(f'w{k+s} = {w[1]}')
+  k = k+1
+for w in W2:
+  print(f'w{k+s} = {w}')
+  k = k+1
